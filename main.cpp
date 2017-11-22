@@ -21,12 +21,29 @@ using namespace std;
 int main(int argc, char *argv[]) {
 
     if (argc < 6) {
-        cout <<"usage: ./RangeDopplerTerrainCorrection sentinel_metatada.dim dem_file EPSG pixelSize output_directory\n";
+        cout <<"usage: ./RangeDopplerTerrainCorrection sentinel_metatada.dim dem_file EPSG pixelSize output_directory xMin yMin xMax yMax\n"
+               "xMin yMin xMax yMax: optional\n";
         return -1;
     }
     cout << "Starting Range-Doppler Geocoding\n";
-    cout << setprecision(20) << endl;
-    RangeDopplerGeocoding geocode(argv[1], argv[2], atoi(argv[3]), atof(argv[4]), argv[5]);
+    //cout << setprecision(20) << endl;
+    RangeDopplerGeocoding geocode(argv[1], argv[2], atoi(argv[3]),  argv[5]);
+    //get tie point grid and compute new image dimensions
+    if (argc == 6)
+        geocode.getTiePointGrid();
+    else if (argc == 10) {
+        double xMin = atof(argv[6]);
+        double yMin = atof(argv[7]);
+        double xMax = atof(argv[8]);
+        double yMax = atof(argv[9]);
+
+        geocode.setTargetExtents(xMin, yMin, xMax, yMax);
+
+    }
+    //resample image
+    float pixelSize = atof(argv[4]);
+    geocode.resampleImage(pixelSize);
+
     cout << "All done!\n";
 
     return 0;

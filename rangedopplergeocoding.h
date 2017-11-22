@@ -34,9 +34,8 @@ class RangeDopplerGeocoding
     bool skipBistaticCorrection, srgrFlag, isPolsar, nearRangeOnLeft  ;
     int numOfInputBands, sourceImageWidth, sourceImageHeight, targetImageWidth, targetImageHeight, demCols, demRows, sourceSRSEPSG, targetSRSEPSG, numOfSRGRCoeficientVectors;
     double waveLength, nearEdgeSlantRange, avgSceneHeight, xMin, xMax, yMin, yMax, rangeSpacing, azimuthSpacing, pixelSpacing, pixelSpacingInMeters, pixelSpacingInDegrees, semiMajorAxis, *demGeoTransform;
-    float *inDEMDataBuffer;
     orbitVectorType orbitVector; //vector containing the state vectors
-    std::string  fileName, inDEMFileName, path, mission, outputPath;
+    std::string  fileName, inDEMFileName, inPath, mission, outputFile;
     std::map<std::string, float*> inputBands;
     std::map<std::string, std::string> outputImageMap;
     std::vector<SRGRCoeficientList> SRGRCoeficientListVector;
@@ -49,6 +48,7 @@ class RangeDopplerGeocoding
     double computeGroundRange(double& groundRangeOrigin, double& slantRange, std::vector<double>& coeficients);
     double computeSlantRange(double& zeroDopplerTime, double& x, double&y, double& z, OrbitData* inSensorPositionFeature );
     double computeRangeIndex(double& zeroDopplerTime, double& slantRange);
+    void computeTargetExtents();
     void createOutputDataset(int& xBlockCount, int& yBlockCount); //creates new dataset and returns the number of blocks
     double getDopplerFrequency(double& x, double&y, double& z, int& id );
     double getDoubleProperty(xmlChar* xpath);
@@ -58,18 +58,21 @@ class RangeDopplerGeocoding
     std::string getStringProperty(xmlChar* xpath);
     int getIntProperty(xmlChar* xpath);
     bool getPosition(double&x, double& y, double& z, OrbitData* sensorPositionFeature);
-    void getTiePointGrid();
+
     bool isValidCell(OGRFeature* sensorPositionFeature);
     void readBands();
-    void resampleImage(float& pixelSize);
+
 
     xmlXPathObjectPtr getNodeSet (xmlChar* xpath); //function to get XPath results from metadata doc
     xmlDocPtr metaDataFile; //metadata file having the information
 
     void parseMetaDataFile();
 public:
-    RangeDopplerGeocoding(char* inFile, char* inDEM, int targetsrsCode, float pixelSize, char* outDir);
+    void getTiePointGrid();
+    void resampleImage(float& pixelSize);
+    RangeDopplerGeocoding(char* inFile, char* inDEM, int targetsrsCode, char* outFile);
     ~RangeDopplerGeocoding();
+    void setTargetExtents(double &xmin, double& ymin, double& xmax, double &ymax);
 };
 
 #endif // RANGEDOPPLERGEOCODING_H

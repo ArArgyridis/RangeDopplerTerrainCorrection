@@ -37,12 +37,11 @@ bool createDirectory(std::string &directory) {
             directory+='/';
 
         bool checkDir = false;
-        while( (pos=directory.find_first_of('/',pre)) != std::string::npos)
-            if (pos > 0 ) {
+        while( (pos=directory.find_first_of('/',pre)) != std::string::npos) {
                 string tmpDir = directory.substr(0, pos++);
                 pre = pos;
                 checkDir = mkdir(tmpDir.c_str(), S_IRUSR | S_IWUSR | S_IXUSR);
-            }
+        }
 
         if (checkDir == 0) {
             cout << "output directory created!\n";

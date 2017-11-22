@@ -69,7 +69,7 @@ double RangeDopplerGeocoding::computeRangeIndex(double &zeroDopplerTime, double 
                 return -1.0;
             else
                 return (groundRange - SRGRCoeficientListVector[0].groundRangeOrigin) / rangeSpacing;
-        }   
+        }
         else {
 
             int idx = 0;
@@ -111,6 +111,14 @@ double RangeDopplerGeocoding::computeSlantRange(double &zeroDopplerTime, double 
     return sqrt(xDiff*xDiff + yDiff*yDiff + zDiff*zDiff);
 }
 
+void RangeDopplerGeocoding::computeTargetExtents() {
+    OGRCoordinateTransformation *transfTargetSource;
+    transfTargetSource = OGRCreateCoordinateTransformation(&sourceSRS, &targetSRS);
+
+    transfTargetSource->Transform(1, &xMin, &yMax);
+    transfTargetSource->Transform(1, &xMax, &yMin);
+}
+
 void RangeDopplerGeocoding::createOutputDataset(int &xBlockCount, int &yBlockCount) {
     //creating output directory
 
@@ -133,41 +141,41 @@ void RangeDopplerGeocoding::createOutputDataset(int &xBlockCount, int &yBlockCou
 
     //checking if path is correct
     char splitChar = '/';
-    if (outputPath.back() != splitChar)
-        outputPath += "/";
+    vector<string> splitOutFile;
+    splitString(outputFile, splitChar, splitOutFile);
+
+    string outputPath = "";
+    for(size_t i = 0; i < splitOutFile.size()  - 1; i++)
+        outputPath += splitOutFile[i] + "/";
 
     bool checkDir = false;
+    checkDir = createDirectory(outputPath);
+    if (!checkDir)
+            exit (1);
 
-    for (auto& band : inputBands) {
-        //check if output directory exists
-        if (checkDir == false) {
-            checkDir = createDirectory(outputPath);
-            if (checkDir == false)
-                exit (1);
-        }
-        vector<string> splitPath, splitName;
+    cout <<"Creating output dataset: " << outputFile << endl;
+    GDALDataset *tmpDataset;
+    tmpDataset = poDriver->Create(outputFile.c_str(), targetImageWidth, targetImageHeight, inputBands.size(), GDT_Float32, NULL);
+    tmpDataset->SetGeoTransform(outGeoTransform);
+    tmpDataset->SetProjection(outProjection);
 
-        splitString(band.first, splitChar, splitPath);
-        char dot = '.';
-        splitString(splitPath.back(), dot, splitName);
-
-        outputImageMap[band.first] = outputPath + "TC_"+splitName[0]+".tif";
-        cout <<"Creating output dataset: " << outputImageMap[band.first] << endl;
-
-        GDALDataset *tmpDataset;
-        tmpDataset = poDriver->Create(outputImageMap[band.first].c_str(), targetImageWidth, targetImageHeight, 1, GDT_Float32, NULL);
-        tmpDataset->SetGeoTransform(outGeoTransform);
-        tmpDataset->SetProjection(outProjection);
-
-        if (xBlockSize == 0) {
-            tmpDataset->GetRasterBand(1)->GetBlockSize(&xBlockSize, &yBlockSize);
-            xBlockCount  = (targetImageWidth + (xBlockSize - 1))/xBlockSize;
-            yBlockCount  = (targetImageHeight + (yBlockSize -1 ))/yBlockSize;
-        }
-
-        GDALClose(tmpDataset);
+    //determining block size
+    if (xBlockSize == 0) {
+        tmpDataset->GetRasterBand(1)->GetBlockSize(&xBlockSize, &yBlockSize);
+        xBlockCount  = (targetImageWidth + (xBlockSize - 1))/xBlockSize;
+        yBlockCount  = (targetImageHeight + (yBlockSize -1 ))/yBlockSize;
     }
 
+    int i = 1;
+    for (auto& band : inputBands) {
+        //check if output directory exists
+        vector<string> splitName;
+        char dot = '.';
+        splitString(band.first, dot, splitName);
+        tmpDataset->GetRasterBand(i++)->SetDescription( splitName[0].c_str() );
+    }
+
+    GDALClose(tmpDataset);
 
     delete[] outGeoTransform;
     outGeoTransform = nullptr;
@@ -262,22 +270,8 @@ void RangeDopplerGeocoding::getTiePointGrid() {
     yMin = min(min(min(yFirstNear, yLastNear), yFirstFar), yLastFar);
     yMax = max(max(max(yFirstNear, yLastNear), yFirstFar), yLastFar);
 
-    /*
-    cout << xMin <<"," << yMin<<endl;
-    cout << xMax <<"," << yMax << endl;
-    */
-    //creating two points representing the image bounding box and projecting them into the new coordinate system
-
-    OGRCoordinateTransformation *transfTargetSource;
-    transfTargetSource = OGRCreateCoordinateTransformation(&sourceSRS, &targetSRS);
-
-    transfTargetSource->Transform(1, &xMin, &yMax);
-    transfTargetSource->Transform(1, &xMax, &yMin);
-
-    transfTargetSource->Transform(1, &xFirstNear, &yFirstNear);
-    transfTargetSource->Transform(1, &xFirstFar, &yFirstFar);
-    transfTargetSource->Transform(1, &xLastNear, &yLastNear);
-    transfTargetSource->Transform(1, &xLastFar, &yLastFar);
+    //computing new output grid
+    computeTargetExtents();
 }
 
 void RangeDopplerGeocoding::parseMetaDataFile() {
@@ -368,7 +362,7 @@ void RangeDopplerGeocoding::parseMetaDataFile() {
 
     if (!srgrFlag) {
         GDALDataset *incidentAngle;
-        string incidentAngleFile = path + "tie_point_grids/incident_angle.img";
+        string incidentAngleFile = inPath + "tie_point_grids/incident_angle.img";
         incidentAngle = (GDALDataset*)GDALOpen( incidentAngleFile.c_str() , GA_ReadOnly );
         float *incidentAngleCenter;
         incidentAngleCenter = new float;
@@ -394,35 +388,30 @@ void RangeDopplerGeocoding::parseMetaDataFile() {
     vector<string> splitPath;
     char delimiter = '.';
     splitString(fileName, delimiter, splitPath);
-    string inPath ="";
 
-
-    for (int i = 0; i < splitPath.size()-1; i++)
-        inPath+= splitPath[i];
-
-    inPath += ".data";
     for (xmlNodePtr node =  xmlNextElementSibling(nodeset->nodeTab[0]->xmlChildrenNode); node != nullptr; node =  xmlNextElementSibling(node)) {
         if ( xmlStrEqual( node->name, (xmlChar*)"Data_File") ) {
             string inBand = (reinterpret_cast<char*>(xmlGetProp(xmlFirstElementChild(node), (xmlChar*)"href")));
             inBand.replace(inBand.length()-3, inBand.length()-1, "img");
-            vector<string> splitBand;
+            vector<string> splitBand, splitName;
             delimiter = '/';
             splitString(inBand, delimiter, splitBand);
-            inBand = inPath + delimiter + splitBand.back();
-            inputBands[inBand] = nullptr;
+            delimiter = '.';
+            splitString(splitBand.back(), delimiter, splitName);
+            inputBands[splitName.front() ] = nullptr;
         }
     }
 }
 
 void RangeDopplerGeocoding::readBands() {
     for(auto& band : inputBands) {
-        cout << "Reading" <<" " << band.first << endl;
-        GDALDataset *tmpBand;
-        tmpBand = (GDALDataset*)( GDALOpen(band.first.c_str(), GA_ReadOnly) );
+        cout << "Reading" <<" " << inPath + band.first + ".img" << endl;
+        GDALDataset *tmpDataset;
+        tmpDataset = (GDALDataset*)( GDALOpen((inPath + band.first + ".img").c_str(), GA_ReadOnly) );
         band.second = new float[sourceImageHeight*sourceImageWidth];
-        tmpBand->GetRasterBand(1)->AdviseRead(0, 0, sourceImageWidth, sourceImageHeight, sourceImageWidth, sourceImageHeight, GDT_Float32, NULL);
-        tmpBand->GetRasterBand(1)->RasterIO( GF_Read, 0, 0, sourceImageWidth, sourceImageHeight, band.second, sourceImageWidth, sourceImageHeight, GDT_Float32, 0, 0);
-        GDALClose(tmpBand);
+        tmpDataset->GetRasterBand(1)->AdviseRead(0, 0, sourceImageWidth, sourceImageHeight, sourceImageWidth, sourceImageHeight, GDT_Float32, NULL);
+        tmpDataset->GetRasterBand(1)->RasterIO( GF_Read, 0, 0, sourceImageWidth, sourceImageHeight, band.second, sourceImageWidth, sourceImageHeight, GDT_Float32, 0, 0);
+        GDALClose(tmpDataset);
     }
 }
 
@@ -452,7 +441,7 @@ void RangeDopplerGeocoding::resampleImage(float &pixelSize) {
 
     cout << "Starting resampling....\n";
 
-    #pragma omp parallel private(inDEMDataBuffer)
+    #pragma omp parallel
     {
         OGRSpatialReference geocentricSRS;
         geocentricSRS.importFromEPSG(4978);
@@ -461,13 +450,18 @@ void RangeDopplerGeocoding::resampleImage(float &pixelSize) {
         tmpTransf = OGRCreateCoordinateTransformation(&targetSRS, &sourceSRS);
 
         //creating a dataset for each thread
-        GDALDataset *inDEMData2;
+        GDALDataset *inDEMData2, *outputDataset;
         inDEMData2 = (GDALDataset*)( GDALOpen(inDEMFileName.c_str(), GA_ReadOnly) );
+        outputDataset = (GDALDataset*)( GDALOpen(outputFile.c_str(), GA_Update) );
 
-        map <string, GDALDataset*> outDatasets;
-        for (auto& band: outputImageMap) {
-           outDatasets[band.second] = (GDALDataset*)( GDALOpen(band.second.c_str(), GA_Update) );
+        map<string, GDALRasterBand*> outBands;
+        for (register int i = 1; i < inputBands.size() + 1; i++) {
+            GDALRasterBand *tmpBand;
+            tmpBand = outputDataset->GetRasterBand(i);
+            outBands[ string(tmpBand->GetDescription()) ] = tmpBand;
         }
+
+
         GDALRasterBand *inDEMBand;
         inDEMBand = inDEMData2->GetRasterBand(1);
 
@@ -486,7 +480,8 @@ void RangeDopplerGeocoding::resampleImage(float &pixelSize) {
 
                 //getting actual block size
                 int actualXBlockSize, actualYBlockSize;
-                outDatasets[outputImageMap.begin()->second]->GetRasterBand(1)->GetActualBlockSize(xBlock, yBlock, &actualXBlockSize, &actualYBlockSize);
+                outputDataset->GetRasterBand(1)->GetActualBlockSize(xBlock, yBlock, &actualXBlockSize, &actualYBlockSize);
+
                 for ( auto& band : inputBands) {
                     if ( (previousXBlockSize != actualXBlockSize) || (previousYBlockSize != actualYBlockSize) ) {
                         delete[] bandBuffer[band.first];
@@ -548,16 +543,22 @@ void RangeDopplerGeocoding::resampleImage(float &pixelSize) {
 
                 delete[] inDEMDataBuffer;
                 inDEMDataBuffer = nullptr;
-                for (auto& band : outputImageMap )
-                    outDatasets[band.second]->GetRasterBand(1)->WriteBlock(xBlock, yBlock, bandBuffer[band.first]);
+
+                for (auto& band : inputBands )
+                    outBands[band.first]->WriteBlock(xBlock, yBlock, bandBuffer[band.first]);
+
+
 
             }
         }
 
         //clearing memory
         GDALClose(inDEMData2);
+        GDALClose(outputDataset);
+        /*
         for (auto& dataset:outDatasets)
             GDALClose(dataset.second);
+        */
     }
 }
 
@@ -636,16 +637,16 @@ bool RangeDopplerGeocoding::getPosition(double &x, double &y, double &z, OrbitDa
     return true;
 }
 
-RangeDopplerGeocoding::RangeDopplerGeocoding(char *inFile, char *inDEM, int targetsrsCode, float pixelSize, char *outDir): fileName(inFile), inDEMFileName(inDEM),
+RangeDopplerGeocoding::RangeDopplerGeocoding(char *inFile, char *inDEM, int targetsrsCode, char *outFile): fileName(inFile), inDEMFileName(inDEM),
     skipBistaticCorrection(false), srgrFlag(true), isPolsar(true), nearEdgeSlantRange(0.0), sourceImageHeight(0), xBlockSize(0), yBlockSize(0),
-    sourceImageWidth(0), sourceSRSEPSG(4326), targetSRSEPSG(targetsrsCode), nearRangeOnLeft(true), outputPath(outDir) {
+    sourceImageWidth(0), sourceSRSEPSG(4326), targetSRSEPSG(targetsrsCode), nearRangeOnLeft(true), outputFile(outFile) {
     GDALAllRegister();
 
     sourceSRS.importFromEPSG(sourceSRSEPSG);
     targetSRS.importFromEPSG(targetSRSEPSG);
 
     metaDataFile = xmlParseFile(inFile);
-    path = fileName.substr(0, fileName.length()-3)+"data/";
+    inPath = fileName.substr(0, fileName.length()-3)+"data/";
 
     //retrieving metadata
     parseMetaDataFile();
@@ -655,12 +656,6 @@ RangeDopplerGeocoding::RangeDopplerGeocoding(char *inFile, char *inDEM, int targ
 
     //creating orbit info
     orbit = new Orbit(orbitVector, firstLineTime, lineTimeInterval, sourceImageHeight);
-
-    //get tie point grid and compute new image dimensions
-    getTiePointGrid();
-
-    //resample image
-    resampleImage(pixelSize);
 }
 
 RangeDopplerGeocoding::~RangeDopplerGeocoding() {
@@ -669,4 +664,11 @@ RangeDopplerGeocoding::~RangeDopplerGeocoding() {
 
     delete demGeoTransform;
     demGeoTransform = nullptr;
+}
+
+void RangeDopplerGeocoding::setTargetExtents(double &xmin, double &ymin, double &xmax, double &ymax) {
+    xMin = xmin;
+    yMin = ymin;
+    xMax = xmax;
+    yMax = ymax;
 }
