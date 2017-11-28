@@ -200,7 +200,6 @@ double RangeDopplerGeocoding::getHeight( double &x, double &y, int &bufferWidth,
     //converting geodesic to pixel coordinates
     int col = int(-(demGeoTransform[2]*(demGeoTransform[3] - y) - demGeoTransform[0]*demGeoTransform[5] + demGeoTransform[5]*x)/(demGeoTransform[2]*demGeoTransform[4] - demGeoTransform[1]*demGeoTransform[5])) - colOffset;
     int row = int( (demGeoTransform[1]*(demGeoTransform[3] - y) - demGeoTransform[0]*demGeoTransform[4] + demGeoTransform[4]*x)/(demGeoTransform[2]*demGeoTransform[4] - demGeoTransform[1]*demGeoTransform[5])) - rowOffset;
-
     return inDEMDataBuffer[ bufferWidth*row +col ];
 }
 
@@ -523,15 +522,14 @@ void RangeDopplerGeocoding::resampleImage(float &pixelSize) {
 
                         if (height > 0.0) {
                             OGRPoint *earthPoint;
-                            //cout <<x <<"\t" <<y << endl;
                             earthPoint = new OGRPoint(x, y, height);
                             earthPoint->transform(transfTargetGeocentric);
                             OrbitData *sensorPositionFeature;
                             sensorPositionFeature = new OrbitData();
-                            x = earthPoint->getX();
-                            y = earthPoint->getY();
+                            double xc = earthPoint->getX();
+                            double yc = earthPoint->getY();
                             height = earthPoint->getZ();
-                            if ( getPosition(x, y, height, sensorPositionFeature) )
+                            if ( getPosition(xc, yc, height, sensorPositionFeature) )
                                 for (auto& band : inputBands )
                                     bandBuffer[ band.first ][actualXBlockSize*j + i ] = getPixelValue(sensorPositionFeature, band.first);
 
